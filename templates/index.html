@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Synthesis Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .main-content {
+            padding: 20px;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .chat-container {
+            height: 400px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 20px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+
+        .user-message {
+            background-color: #e3f2fd;
+            margin-left: 20%;
+        }
+
+        .bot-message {
+            background-color: #f1f1f1;
+            margin-right: 20%;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        textarea {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: none;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .file-upload {
+            margin-top: 10px;
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: #4CAF50;
+            animation: spin 1s ease-in-out infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading .spinner {
+            display: block;
+        }
+
+        .loading button {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="dashboard">
+        <div class="sidebar">
+            <h2>Data Synthesis</h2>
+            <div class="file-upload">
+                <input type="file" id="file-input" accept=".xlsx">
+                <button id="upload-btn">Upload Excel</button>
+                <small>Supported formats: .xlsx</small>
+            </div>
+            <!-- <div class="sidebar-stats">
+                <h3>Quick Stats</h3>
+                <div id="stats-container"></div>
+            </div> -->
+        </div>
+        <div class="main-content">
+            <div class="container">
+                <h1>Data Synthesis Chatbot</h1>
+                <div class="chat-container" id="chat-container"></div>
+                <div class="input-area">
+                    <textarea id="message-input" placeholder="Enter your message here..."></textarea>
+                    <button id="send-button">Send</button>
+                </div>
+                <div id="data-preview" style="margin-top: 20px; display: none;">
+                    <h3>Uploaded Data Preview</h3>
+                    <div id="preview-content"
+                        style="max-height: 300px; overflow: auto; border: 1px solid #ddd; padding: 10px;"></div>
+                    <div id="chart-container"
+                        style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script>
+        // Clear all stored data on page load
+        window.addEventListener('load', function () {
+            localStorage.clear();
+            document.getElementById('chart-container').innerHTML = '';
+            document.getElementById('preview-content').innerHTML = '';
+            document.getElementById('data-preview').style.display = 'none';
+            document.getElementById('file-input').value = '';
+        });
+
+        // Register the datalabels plugin
+        Chart.register(ChartDataLabels);
+
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const fileInput = document.getElementById('file-input');
+
+        function addMessage(text, isUser) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+
+            if (isUser) {
+                messageDiv.textContent = text;
+            } else {
+                messageDiv.innerHTML = marked.parse(text);
+            }
+
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        async function sendMessage(message, file) {
+            const formData = new FormData();
+            if (message) formData.append('message', message);
+            if (file) formData.append('file', file);
+
+            // Show loading state
+            document.body.classList.add('loading');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'spinner';
+            chatContainer.appendChild(loadingDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                // Remove loading spinner
+                document.body.classList.remove('loading');
+                chatContainer.removeChild(loadingDiv);
+                addMessage(data.response, false);
+            } catch (error) {
+                document.body.classList.remove('loading');
+                chatContainer.removeChild(loadingDiv);
+                addMessage(`Error: ${error.message}`, false);
+            }
+        }
+
+        sendButton.addEventListener('click', () => {
+            const message = messageInput.value.trim();
+            if (message) {
+                addMessage(message, true);
+                sendMessage(message);
+                messageInput.value = '';
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            const message = messageInput.value.trim();
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const html = XLSX.utils.sheet_to_html(firstSheet);
+
+                    document.getElementById('preview-content').innerHTML = html;
+                    document.getElementById('data-preview').style.display = 'block';
+
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                    const chartContainer = document.getElementById('chart-container');
+                    chartContainer.innerHTML = '';
+
+                    const numericCols = new Set();
+                    for (const col in firstSheet) {
+                        if (col !== '!ref' && firstSheet[col].t === 'n') {
+                            const colName = col.replace(/[0-9]/g, '');
+                            numericCols.add(colName);
+                        }
+                    }
+                    console.log("numericCols",numericCols)
+                    console.log("jsonData",jsonData)
+                    numericCols.forEach(colName => {
+                        const chartDiv = document.createElement('div');
+                        chartDiv.style.minHeight = '300px';
+                        chartDiv.style.position = 'relative';
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 400;
+                        canvas.height = 300;
+                        chartDiv.appendChild(canvas);
+                        chartContainer.appendChild(chartDiv);
+
+                        const labels = jsonData.map((_, i) => `Row ${i + 1}`);
+                        let values = jsonData.map(row => {
+                            let val = row[Total];
+                            console.log(row[colName])
+                            if (typeof val === 'string') {
+                                val = parseFloat(val.replace(/[^\d.-]/g, ''));
+                            }
+                            return val;
+                        }).filter(v => !isNaN(v));
+
+                        if (values.length === 0) {
+                            console.error(`No valid numeric data found in column: ${colName}`);
+                            console.error("Sheet1", firstSheet)
+
+                            return;
+                        }
+
+                        try {
+                            new Chart(canvas, {
+                                type: 'line',
+                                data: {
+                                    labels: labels,
+                                    datasets: [{
+                                        label: colName,
+                                        data: values,
+                                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                                        borderColor: 'rgba(54, 162, 235, 0.5)',
+                                        borderWidth: 1,
+                                        pointBackgroundColor: 'rgba(54, 162, 235, 0.8)',
+                                        pointRadius: 3,
+                                        fill: false,
+                                        tension: 0.1
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    plugins: {
+                                        title: {
+                                            display: true,
+                                            text: `${colName} Values`
+                                        }
+                                    }
+                                }
+                            });
+                        } catch (error) {
+                            console.error(`Error creating chart for ${colName}:`, error);
+                            chartDiv.innerHTML = `<p style="color:red">Error displaying ${colName} data</p>`;
+                        }
+                    });
+                };
+                reader.readAsArrayBuffer(file);
+
+                if (message) {
+                    addMessage(`Processing file: ${file.name} with instructions`, true);
+                    sendMessage(message, file);
+                } else {
+                    addMessage(`Auto-processing file: ${file.name}`, true);
+                    sendMessage("Generate synthetic data matching this Excel structure", file);
+                }
+                fileInput.value = '';
+            }
+        });
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+        document.head.appendChild(script);
+
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendButton.click();
+            }
+        });
+    </script>
+</body>
+
+</html>
